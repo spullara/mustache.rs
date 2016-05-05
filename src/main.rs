@@ -1,5 +1,5 @@
 extern crate mustache;
 
 fn main() {
-    mustache::compiler::compileRead(&"{{name}}".as_bytes(), "name");
+    mustache::compiler::compile_read(&mut "{{name}}".as_bytes(), "name");
 }

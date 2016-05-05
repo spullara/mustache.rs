@@ -1,8 +1,11 @@
 use std::io::Write;
 use std::any::Any;
 use std::io::Read;
-use std::io::Error;
+use std::io::BufReader;
+use std::io::BufRead;
 use std::fs::File;
+use std::io::Error;
+use std::io::ErrorKind;
 
 static DEFAULT_SM: &'static str = "{{";
 static DEFAULT_EM: &'static str = "}}";
@@ -51,15 +54,36 @@ impl IsCode for Mustache {
 }
 
 pub fn compile(file: &str) -> Result<Box<IsCode>, Error> {
-    let openFile = try!(File::open(file));
-    compileRead(&openFile, file)
+    compile_read(&mut try!(File::open(file)), file)
 }
 
-pub fn compileRead(reader: &Read, file: &str) -> Result<Box<IsCode>, Error> {
-    compileInternal(reader, "", 0, file, DEFAULT_SM, DEFAULT_EM, true)
+pub fn compile_read(reader: &mut Read, file: &str) -> Result<Box<IsCode>, Error> {
+    compile_internal(&mut BufReader::new(reader), "", 0, file, DEFAULT_SM, DEFAULT_EM, true)
 }
 
-fn compileInternal(reader: &Read, tag: &str, currentLine: u32, file: &str, sm: &str, em: &str, startOfLine: bool) -> Result<Box<IsCode>, Error> {
+fn compile_internal(br: &mut BufRead, tag: &str, currentLine: u32, file: &str, sm: &str, em: &str, startOfLine: bool) -> Result<Box<IsCode>, Error> {
+    let startLine = currentLine;
+    let iterable = currentLine != 0;
+
+    let mut sawCR = false;
+    let mut onlywhitespace = true;
+    let mut trackingLine = match currentLine {
+        0 => 1,
+        _ => currentLine
+    };
+    let mut out = String::new();
+
+    let mut iter = br.chars();
+    loop {
+        let c = match iter.next() {
+            Some(a) => match a {
+                Ok(b) => b,
+                Err(err) => return Err(Error::new(ErrorKind::InvalidData, err))
+            },
+            None => break
+        };
+        out.push(c);
+    }
+    print!("{}", out);
     Ok(Box::new(Mustache { codes: vec![] }))
-
 }

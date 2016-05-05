@@ -1,0 +1,6 @@
+[package]
+name = "mustache"
+version = "0.1.0"
+authors = ["Sam Pullara <spullara@yahoo.com>"]
+
+[dependencies]

@@ -1,5 +1,11 @@
 use std::io::Write;
 use std::any::Any;
+use std::io::Read;
+use std::io::Error;
+use std::fs::File;
+
+static DEFAULT_SM: &'static str = "{{";
+static DEFAULT_EM: &'static str = "}}";
 
 #[derive(Eq)]
 struct TemplateContext {
@@ -44,6 +50,16 @@ impl IsCode for Mustache {
     }
 }
 
-pub fn parse(template: &String) -> Box<IsCode> {
-    Box::new(Mustache { codes: vec![] })
+pub fn compile(file: &str) -> Result<Box<IsCode>, Error> {
+    let openFile = try!(File::open(file));
+    compileRead(&openFile, file)
+}
+
+pub fn compileRead(reader: &Read, file: &str) -> Result<Box<IsCode>, Error> {
+    compileInternal(reader, "", 0, file, DEFAULT_SM, DEFAULT_EM, true)
+}
+
+fn compileInternal(reader: &Read, tag: &str, currentLine: u32, file: &str, sm: &str, em: &str, startOfLine: bool) -> Result<Box<IsCode>, Error> {
+    Ok(Box::new(Mustache { codes: vec![] }))
+
 }

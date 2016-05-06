@@ -109,15 +109,91 @@ fn compile_internal(br: &mut BufRead, tag: Option<&str>, currentLine: u32, file:
         if c == sm.char_at(0) {
             let mut matches = sm.len() == 1;
             if !matches {
-                let peeked = iter.peek();
-                matches = peeked.and_then(|v| {
-                    v.as_ref().ok()
-                }).map(|c| {
-                    *c == sm.char_at(1)
-                }).unwrap_or(false);
+                {
+                    let peeked = iter.peek();
+                    matches = peeked.and_then(|v| {
+                        v.as_ref().ok()
+                    }).map(|c| {
+                        *c == sm.char_at(1)
+                    }).unwrap_or(false);
+                }
+                if matches {
+                    // Consume the character from the stream
+                    iter.next();
+                }
             }
             if matches {
+                // We are in a tag! No we grab the tag name.
+                let mut tagName = String::new();
+                loop {
+                    let c = match iter.next() {
+                        Some(a) => match a {
+                            Ok(b) => b,
+                            Err(err) => return Err(err.to_string())
+                        },
+                        None => break
+                    };
+                    if c == em.char_at(0) {
+                        let mut matches = em.len() == 1;
+                        if !matches {
+                            {
+                                let peeked = iter.peek();
+                                matches = peeked.and_then(|v| {
+                                    v.as_ref().ok()
+                                }).map(|c| {
+                                    *c == em.char_at(1)
+                                }).unwrap_or(false);
+                            }
+                            if matches {
+                                // Consume the character from the stream
+                                iter.next();
+                            }
+                        }
+                        if matches {
+                            break;
+                        }
+                    }
+                    tagName.push(c);
+                }
+                if tagName.len() == 0 {
+                    return Err("Empty mustache".to_string());
+                }
+                let ch = tagName.char_at(0);
+                let variable = tagName[1..].trim();
+                match ch {
+                    '#' |
+                    '^' |
+                    '<' |
+                    '$' => {
 
+                    },
+                    '/' => {
+
+                    },
+                    '>' => {
+
+                    },
+                    '{' => {
+
+                    },
+                    '&' => {
+
+                    },
+                    '%' => {
+
+                    },
+                    '!' => {
+
+                    },
+                    '=' => {
+
+                    },
+                    _ => {
+                        println!("WriteCode: {}", out);
+                        println!("ValueCode: {}", tagName);
+                    }
+                }
+                continue;
             }
         }
         out.push(c);
@@ -125,12 +201,12 @@ fn compile_internal(br: &mut BufRead, tag: Option<&str>, currentLine: u32, file:
     // WriteCode
     // Check if tag is set
     match tag {
-        None => return Err("Failed to close tag".to_string()),
-        _ => {
-            print!("{}", out);
+        None => {
+            println!("{}", out);
             // EOFCode
             // return MustacheCode
             Ok(Box::new(Mustache { codes: vec![] }))
         }
+        _ => return Err("Failed to close tag".to_string()),
     }
 }

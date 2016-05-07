@@ -6,6 +6,9 @@ use std::io::BufRead;
 use std::fs::File;
 use std::error::Error;
 use std::iter::Peekable;
+use std::io::CharsError;
+use std::cell::Cell;
+use std::cell::RefCell;
 
 static DEFAULT_SM: &'static str = "{{";
 static DEFAULT_EM: &'static str = "}}";
@@ -58,29 +61,66 @@ pub fn compile(file: &str) -> Result<Box<IsCode>, String> {
 }
 
 pub fn compile_read(reader: &mut Read, file: &str) -> Result<Box<IsCode>, String> {
-    compile_internal(&mut BufReader::new(reader), None, 0, file, DEFAULT_SM, DEFAULT_EM, true)
+    let mut buf = &mut BufReader::new(reader).chars();
+    let iter = &mut buf.take_while(|c| {
+        c.is_ok()
+    }).map(|c| {
+        c.ok().unwrap()
+    });
+    let chars = Lookahead::new(iter);
+
+    compile_internal(&chars, None, &Cell::new(0), file, DEFAULT_SM, DEFAULT_EM, true)
 }
 
-fn compile_internal(br: &mut BufRead, tag: Option<&str>, currentLine: u32, file: &str, sm: &str, em: &str, startOfLine: bool) -> Result<Box<IsCode>, String> {
+struct Lookahead<'a> {
+    iter: RefCell<&'a mut Iterator<Item = char>>,
+    peeked: Cell<Option<char>>,
+}
+
+impl <'a> Lookahead<'a>  {
+    fn new(iter: &mut Iterator<Item = char>) -> Lookahead {
+        Lookahead { iter: RefCell::new(iter), peeked: Cell::new(None) }
+    }
+
+    fn peek(&self) -> Option<char> {
+        match self.peeked.get() {
+            None => {
+                self.peeked.set(self.iter.borrow_mut().next());
+                self.peeked.get()
+            }
+            Some(c) => {
+                self.peeked.set(None);
+                Some(c)
+            }
+        }
+    }
+    fn next(&self) -> Option<char> {
+        match self.peeked.get() {
+            None => self.iter.borrow_mut().next(),
+            Some(p) => {
+                self.peeked.set(None);
+                Some(p)
+            }
+        }
+    }
+}
+
+fn compile_internal(br: &Lookahead, tag: Option<&str>, currentLine: &Cell<u32>, file: &str, sm: &str, em: &str, startOfLine: bool) -> Result<Box<IsCode>, String> {
     let startLine = currentLine;
 
-    let mut iterable = currentLine != 0;
+    let mut iterable = currentLine.get() != 0;
     let mut sawCR = false;
     let mut onlywhitespace = true;
-    let mut trackingLine = match currentLine {
+    let mut trackingLine = match currentLine.get() {
         0 => 1,
-        _ => currentLine
+        _ => currentLine.get()
     };
     let mut out = String::new();
     let mut trackingStartOfLine = startOfLine;
 
-    let mut iter = br.chars().peekable();
     loop {
-        let c = match iter.next() {
-            Some(a) => match a {
-                Ok(b) => b,
-                Err(err) => return Err(err.to_string())
-            },
+        let c = match br.next() {
+            Some(a) => a,
             None => break
         };
         // Next line handling
@@ -89,7 +129,7 @@ fn compile_internal(br: &mut BufRead, tag: Option<&str>, currentLine: u32, file:
             continue;
         }
         if c == '\n' {
-            trackingLine = trackingLine + 1;
+            currentLine.set(currentLine.get() + 1);
             if !iterable || (iterable && !onlywhitespace) {
                 if sawCR {
                     out.push('\r');
@@ -110,43 +150,36 @@ fn compile_internal(br: &mut BufRead, tag: Option<&str>, currentLine: u32, file:
             let mut matches = sm.len() == 1;
             if !matches {
                 {
-                    let peeked = iter.peek();
-                    matches = peeked.and_then(|v| {
-                        v.as_ref().ok()
-                    }).map(|c| {
-                        *c == sm.char_at(1)
+                    let peeked = br.peek();
+                    matches = peeked.map(|c| {
+                        c == sm.char_at(1)
                     }).unwrap_or(false);
                 }
                 if matches {
                     // Consume the character from the stream
-                    iter.next();
+                    br.next();
                 }
             }
             if matches {
                 // We are in a tag! No we grab the tag name.
                 let mut tagName = String::new();
                 loop {
-                    let c = match iter.next() {
-                        Some(a) => match a {
-                            Ok(b) => b,
-                            Err(err) => return Err(err.to_string())
-                        },
+                    let c = match br.next() {
+                        Some(a) => a,
                         None => break
                     };
                     if c == em.char_at(0) {
                         let mut matches = em.len() == 1;
                         if !matches {
                             {
-                                let peeked = iter.peek();
-                                matches = peeked.and_then(|v| {
-                                    v.as_ref().ok()
-                                }).map(|c| {
-                                    *c == em.char_at(1)
+                                let peeked = br.peek();
+                                matches = peeked.map(|c| {
+                                    c == em.char_at(1)
                                 }).unwrap_or(false);
                             }
                             if matches {
                                 // Consume the character from the stream
-                                iter.next();
+                                br.next();
                             }
                         }
                         if matches {
@@ -160,12 +193,21 @@ fn compile_internal(br: &mut BufRead, tag: Option<&str>, currentLine: u32, file:
                 }
                 let ch = tagName.char_at(0);
                 let variable = tagName[1..].trim();
+                println!("Matching on: {}", ch);
                 match ch {
                     '#' |
                     '^' |
                     '<' |
                     '$' => {
-
+                        let oldStartOfLine = trackingStartOfLine;
+                        trackingStartOfLine = trackingStartOfLine & onlywhitespace;
+                        let line = currentLine.get();
+                        let mustache = compile_internal(br, Some(variable), currentLine, file, sm, em, trackingStartOfLine);
+                        let lines = currentLine.get() - line;
+                        if !onlywhitespace || lines == 0 {
+                            println!("WriteCode: {}", out);
+                        }
+                        out = String::new();
                     },
                     '/' => {
 

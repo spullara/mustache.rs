@@ -105,7 +105,9 @@ impl <'a> Lookahead<'a>  {
     }
 }
 
-fn compile_internal(br: &Lookahead, tag: Option<&str>, currentLine: &Cell<u32>, file: &str, sm: &str, em: &str, startOfLine: bool) -> Result<Box<IsCode>, String> {
+fn compile_internal(br: &Lookahead, tag: Option<&str>, currentLine: &Cell<u32>, file: &str, sm_start: &str, em_start: &str, startOfLine: bool) -> Result<Box<IsCode>, String> {
+    let mut sm = sm_start;
+    let mut em = em_start;
     let startLine = currentLine;
 
     let mut iterable = currentLine.get() != 0;
@@ -208,27 +210,67 @@ fn compile_internal(br: &Lookahead, tag: Option<&str>, currentLine: &Cell<u32>, 
                             println!("WriteCode: {}", out);
                         }
                         out = String::new();
+                        match ch {
+                            '#' => println!("Starting block: {}", variable),
+                            '^' => println!("Starting not block: {}", variable),
+                            '<' => println!("Starting inherit: {}", variable),
+                            '$' => println!("Starting replacement: {}", variable),
+                            _ => panic!("Asserting this cant happen"),
+                        }
+                        iterable = lines != 0;
                     },
                     '/' => {
-
+                        if !trackingStartOfLine || !onlywhitespace {
+                            println!("WriteCode: {}", out);
+                        }
+                        match tag {
+                            None => return Err("Missing start tag".to_string()),
+                            Some(t) => {
+                                if t != variable {
+                                    return Err("Mismatched tags".to_string())
+                                }
+                            }
+                        }
+                        println!("End tag: {}", variable)
                     },
                     '>' => {
-
+                        println!("WriteCode: {}", out);
+                        trackingStartOfLine = trackingStartOfLine & onlywhitespace;
+                        println!("PartialCode: {}", variable);
                     },
                     '{' => {
-
+                        println!("WriteCode: {}", out);
+                        let mut name = variable;
+                        if em.char_at(1) != '}' {
+                            let length = variable.len() - 1;
+                            name = &variable[0..length];
+                        } else {
+                            match br.next() {
+                                None => break,
+                                Some(c) => {
+                                    if c != '}' {
+                                        return Err("Improperly closed variable".to_string());
+                                    }
+                                }
+                            }
+                        }
+                        println!("UnescpaedValueCode: {}", name);
                     },
                     '&' => {
-
+                        println!("WriteCode: {}", out);
+                        println!("UnescpaedValueCode: {}", variable);
                     },
                     '%' => {
-
+                        println!("WriteCode: {}", out);
+                        println!("PragmaCode: {}", variable);
                     },
                     '!' => {
-
+                        println!("WriteCode: {}", out);
+                        println!("CommentCode: {}", variable);
                     },
                     '=' => {
-
+                        println!("WriteCode: {}", out);
+                        println!("Delimiters: {}", tagName);
                     },
                     _ => {
                         println!("WriteCode: {}", out);

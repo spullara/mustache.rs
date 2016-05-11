@@ -9,12 +9,13 @@ use std::iter::Peekable;
 use std::io::CharsError;
 use std::cell::Cell;
 use std::cell::RefCell;
+use std::collections::LinkedList;
 
 static DEFAULT_SM: &'static str = "{{";
 static DEFAULT_EM: &'static str = "}}";
 
 #[derive(Eq)]
-struct TemplateContext {
+pub struct TemplateContext {
     sm: String,
     em: String,
     file: String,
@@ -32,15 +33,15 @@ impl PartialEq for TemplateContext {
     }
 }
 
-struct Code {
+pub struct Code {
     name: String,
     identity: String,
     appended: String,
     mustache: Mustache,
 }
 
-struct Mustache {
-    codes: Vec<Box<IsCode>>,
+pub struct Mustache {
+    pub codes: LinkedList<Box<IsCode>>,
 }
 
 pub trait IsCode {
@@ -56,11 +57,11 @@ impl IsCode for Mustache {
     }
 }
 
-pub fn compile(file: &str) -> Result<Box<IsCode>, String> {
-    compile_read(&mut try!(File::open(file).map_err(|e| e.to_string())), file)
+pub fn compile(mv: &mut MustacheVisitor, file: &str) -> Result<(), String> {
+    compile_read(mv, &mut try!(File::open(file).map_err(|e| e.to_string())), file)
 }
 
-pub fn compile_read(reader: &mut Read, file: &str) -> Result<Box<IsCode>, String> {
+pub fn compile_read(mv: &mut MustacheVisitor, reader: &mut Read, file: &str) -> Result<(), String> {
     let mut buf = &mut BufReader::new(reader).chars();
     let iter = &mut buf.take_while(|c| {
         c.is_ok()
@@ -69,7 +70,7 @@ pub fn compile_read(reader: &mut Read, file: &str) -> Result<Box<IsCode>, String
     });
     let chars = Lookahead::new(iter);
 
-    compile_internal(&chars, None, &Cell::new(0), file, DEFAULT_SM, DEFAULT_EM, true)
+    compile_internal(mv, &chars, None, &Cell::new(0), file, DEFAULT_SM, DEFAULT_EM, true)
 }
 
 struct Lookahead<'a> {
@@ -105,7 +106,41 @@ impl <'a> Lookahead<'a>  {
     }
 }
 
-fn compile_internal(br: &Lookahead, tag: Option<&str>, currentLine: &Cell<u32>, file: &str, sm_start: &str, em_start: &str, startOfLine: bool) -> Result<Box<IsCode>, String> {
+pub trait MustacheVisitor {
+    fn mustache(&self, ctx: &TemplateContext) -> Mustache;
+    fn iterable(&self, ctx: &TemplateContext, variable: String, mustache: &Mustache);
+    fn non_iterable(&self, ctx: &TemplateContext, variable: String, mustache: &Mustache);
+    fn partial(&self, ctx: &TemplateContext, variable: String);
+    fn value(&self, ctx: &TemplateContext, variable: String, encoded: bool);
+    fn write(&self, ctx: &TemplateContext, text: String);
+    fn pragma(&self, ctx: &TemplateContext, pragma: String, args: String);
+    fn eof(&self, ctx: &TemplateContext);
+    fn extend(&self, ctx: &TemplateContext, variable: String, mustache: Mustache);
+    fn name(&self, ctx: &TemplateContext, variable: String, mustache: Mustache);
+    fn comment(&self, ctx: &TemplateContext, comment: String);
+}
+
+pub struct DefaultMustacheVisitor {
+    pub mustache: Mustache,
+}
+
+impl MustacheVisitor for DefaultMustacheVisitor {
+    fn mustache(&self, ctx: &TemplateContext) -> Mustache {
+        Mustache{codes: LinkedList::new()}
+    }
+    fn iterable(&self, ctx: &TemplateContext, variable: String, mustache: &Mustache){}
+    fn non_iterable(&self, ctx: &TemplateContext, variable: String, mustache: &Mustache){}
+    fn partial(&self, ctx: &TemplateContext, variable: String){}
+    fn value(&self, ctx: &TemplateContext, variable: String, encoded: bool){}
+    fn write(&self, ctx: &TemplateContext, text: String){}
+    fn pragma(&self, ctx: &TemplateContext, pragma: String, args: String){}
+    fn eof(&self, ctx: &TemplateContext){}
+    fn extend(&self, ctx: &TemplateContext, variable: String, mustache: Mustache){}
+    fn name(&self, ctx: &TemplateContext, variable: String, mustache: Mustache){}
+    fn comment(&self, ctx: &TemplateContext, comment: String){}
+}
+
+fn compile_internal(mv: &mut MustacheVisitor, br: &Lookahead, tag: Option<&str>, currentLine: &Cell<u32>, file: &str, sm_start: &str, em_start: &str, startOfLine: bool) -> Result<(), String> {
     let mut sm = sm_start;
     let mut em = em_start;
     let startLine = currentLine;
@@ -204,7 +239,7 @@ fn compile_internal(br: &Lookahead, tag: Option<&str>, currentLine: &Cell<u32>, 
                         let oldStartOfLine = trackingStartOfLine;
                         trackingStartOfLine = trackingStartOfLine & onlywhitespace;
                         let line = currentLine.get();
-                        let mustache = compile_internal(br, Some(variable), currentLine, file, sm, em, trackingStartOfLine);
+                        let mustache = compile_internal(mv, br, Some(variable), currentLine, file, sm, em, trackingStartOfLine);
                         let lines = currentLine.get() - line;
                         if !onlywhitespace || lines == 0 {
                             println!("WriteCode: {}", out);
@@ -289,7 +324,7 @@ fn compile_internal(br: &Lookahead, tag: Option<&str>, currentLine: &Cell<u32>, 
             println!("{}", out);
             // EOFCode
             // return MustacheCode
-            Ok(Box::new(Mustache { codes: vec![] }))
+            Ok(())
         }
         _ => return Err("Failed to close tag".to_string()),
     }
